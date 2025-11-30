@@ -1,91 +1,254 @@
-# **Upscaling the USFS Land Cover Classification Dataset in Colorado**
+# **High-Resolution Land Cover Classification Using Deep Learning**
+
+## **Abstract**
+
+This project develops a convolutional neural network (CNN) with attention mechanisms to upscale the USFS Landscape Change Monitoring System (LCMS) land cover dataset from 30m to 10m resolution. By training on Sentinel-2 multispectral imagery (RGB + NIR) with spatial context windows, the model learns to classify land cover at field scales while correcting systematic errors in the coarser USFS dataset. The approach demonstrates the feasibility of learning from imperfect labels when training data contains sufficient correctly-labeled regions, and highlights the importance of spatial context for land cover classification tasks.
+
+---
+
 ## **Background**
-The USFS annually produces a map of land cover classes and landscape change across the coterminus United States. From the dataset description:<br><br>
-"""<br>
-Outputs include three annual products: change, ***land cover***, and land use. These values are predicted for each year of the Landsat time series and serve as the foundational products for LCMS. Land cover and land use maps depict life-form level land cover and broad-level land use for each year.
-<br><br>
-Because no algorithm performs best in all situations, LCMS uses an ensemble of models as predictors, which improves map accuracy across a range of ecosystems and change processes (Healey et al., 2018). The resulting suite of LCMS change, land cover, and land use maps offer a holistic depiction of landscape change across the United States since 1985.<br>
-"""
 
-## **Motivation**
-The resulting map has a 30x30m resolution, and while generally accurate, produces clearly inaccurate results at small scales. Shown here is the USFS dataset overlain on high resolution satellite imagery of an area near Leadville, CO:
-<br>
-![alt text](/figs/tree_misidentifications.png)
-<br>
-Clearly the USFS data identifies a significant portion of open grassy shrubland on the left side of the image as trees (darker blue). This should likely be classified as grass/forb/herb & shrubs mix. Similar small scale inaccuracies can be seen virtually everywhere, especially on the boundaries between different land classes, as well as with small scale features like creeks or clearings.
-<br>
-The USFS product is extremely helpful at quantifying general land cover trends at large scales, but could be improved upon at smaller scales to provide better context to decision makers and organizations operating at a similarly local level. The original dataset, despite consistently exhibiting these inaccuracies, contains enough accurate information to allow computer vision models to learn the relationships from the correct predictions while not overfitting to the small scale mistakes.
+The USFS Landscape Change Monitoring System produces annual maps of land cover, land use, and landscape change across the conterminous United States at 30m resolution. From the dataset description:
 
-## **Approach**
-In order to create an upscaled land classification map the data used by the model needs to be higher resolution as well. For this task we use 10x10m resolution Sentinel 2 satellite imagery (https://developers.google.com/earth-engine/datasets/catalog/sentinel-2).
-This dataset provides red, green, blue, and NIR bands at 10m resolution (as well as many other bands which were not used to train the model), and is ideal for providing the model context about vegetative patterns on a small scale.
-Training data included 150,000 samples from 20 different ~10x10 mile ROIs in Colorado, and as such is best suited for application to Colorado and similar surrounding regions in the Rocky Mountains and Great Plains.
-<br><br>
-Model architecture development was informed by the hypothesis that information about the area surrounding a given target pixel is critical to identifying the land use class at that pixel. For example, take a single bright green pixel - in isolation it could be attributed to a lush corn field, a tree, a football field, etc. Only by looking at the surrounding area can you make sense of what is happing at the center of the image.
-<br><br>
-In this project, providing regional context is achieved by training a convolutional neural net (CNN) on 80x80 pixel images (pixel blocks) of the target pixel and its surrounding area. The model takes as input the red, green, blue, and NIR bands from the Sentinel 2 imagery, as well as a calculated NDVI band of the pixel block (resulting in a 5x80x80 ChannelsxHeightxWidth tensor), and returns a discrete classification for the central pixel. 
-The CNN is extremely basic and contains 3 convolutional layers, each of which aim to identify relevant features at different scales within the pixel block. While training, the model compares the output at the 10x10m resolution pixel with the USFS class at the same location. Despite the small scale innaccuracies of the USFS data described above, this approach yields a model that learns from contiguous swathes of correctly labeled classes and (for the most part) ignores inaccurate edge cases, as they constitute an insignificant amount of the training data.
+> *"Outputs include three annual products: change, land cover, and land use. These values are predicted for each year of the Landsat time series and serve as the foundational products for LCMS. Land cover and land use maps depict life-form level land cover and broad-level land use for each year.*
+> 
+> *Because no algorithm performs best in all situations, LCMS uses an ensemble of models as predictors, which improves map accuracy across a range of ecosystems and change processes (Healey et al., 2018). The resulting suite of LCMS change, land cover, and land use maps offer a holistic depiction of landscape change across the United States since 1985."*
 
-## **Findings**
-Below are examples of the model outputs on ROIs in the same region as the training data where USFS data exists, and ROIs in two different parts of the world without USFS data to compare to.
+### **Problem Statement**
 
-<table>
-<tr>
-<th> Against ROIs with USFS data to compare to: </th>
-<th> Legend </th>
-</tr>
-<tr>
-<td>
+While the USFS dataset provides valuable regional-scale land cover information, it exhibits systematic classification errors at fine spatial scales (Figure 1). Ecotones, riparian corridors, and small landscape features are frequently misclassified. These errors limit the dataset's utility for field-scale applications in precision agriculture, local land use planning, and ecosystem monitoring.
 
-Here we look at a number of ROIs in Colorado which have similar Rocky Mountain-esque terrain as was prevelant in the training data. Despite the imperfect nature of the USFS data, the capacity of this model is shown here. The model accurately recognizes and categorizes the differences in vegetation types between north and south facing slopes in foothill features, and not only provides an upscaled map of the USFS data, but also addresses the small scale imperfections that plague the low resolution approach. Here we see the model carefully discern between sparesly vegetated southern hill slopes and the densely forested northern sides while sticking the the same general categorization scheme as is present in the USFS data. In the Mt Yale ROI we can see the model identify riverbed features which are absent in the USFS classifications.
+![USFS misclassifications near Leadville, CO](/figs/tree_misidentifications.png)
 
-</td>
-<td>
+*Figure 1: USFS land cover overlain on high-resolution imagery near Leadville, CO. Large areas of grass/forb/herb and shrub communities (left) are erroneously classified as trees (dark blue).*
 
-![Classification legend](/figs/legend.png)
+---
 
-</td>
-</tr>
-</table>
+## **Methodology**
 
-| ROI | Raw Sentinel 2 Imagery | Overlain Predictions | Predictions | USFS Data |
-| --- | ---------------------- | -------------------- | ----------- | --------- |
-| **Snowmass**<br>The model clearly outlines <br>hillsides and slope structure. | ![alt text](/figs/snow_s2.png) | ![alt text](/figs/snow_5050.png) | ![alt text](/figs/snow_preds.png) | ![alt text](/figs/snow_usfs.png) |
-| **Boise**<br>USFS decides much of the <br>mountainous landscape is <br>snow, while the model <br>(trained on summer images) predicts shrubs <br>and trees. | ![alt text](/figs/idaho_s2.png) | ![alt text](/figs/idaho_5050.png) | ![alt text](/figs/idaho_preds.png) | ![alt text](/figs/idaho_usfs.png) |
-| **Mt Yale**<br>The model makes similar <br> predictions here, but <br>additionally identifies <br>riverbed features. | ![alt text](/figs/yale_s2.png) | ![alt text](/figs/yale_5050.png) | ![alt text](/figs/yale_preds.png) | ![alt text](/figs/yale_usfs.png) |
-| **Steamboat**<br>Both the model and USFS <br>underperform here, with <br>the model predicting mostly shrubs, and <br>USFS predicting <br>mostly trees. The reality <br>is a mixture of both. | ![alt text](/figs/steam_s2.png) | ![alt text](/figs/steam_5050.png) | ![alt text](/figs/steam_preds.png) | ![alt text](/figs/steam_usfs.png) |
-| **Laporte**<br>USFS classifies most <br>of this landscape as <br>'Barren and grass/forb/herb <br>mix' (brown) while the model accurately identifies <br>a mixture of shrubs and trees <br>following topological features.  | ![alt text](/figs/laporte_s2.png) | ![alt text](/figs/laporte_5050.png) | ![alt text](/figs/laporte_preds.png) | ![alt text](/figs/laporte_usfs.png) |
+### **Data Sources**
 
+**Input Data:** Sentinel-2 Level-2A Surface Reflectance imagery (10m resolution)
+- Bands: Red, Green, Blue, NIR
+- Derived: NDVI (calculated in-network)
+- Source: Google Earth Engine
 
-<table>
-<tr>
-<th> What it thinks of an ROI in a completely different area: </th>
-<th> Legend </th>
-</tr>
-<tr>
-<td>
+**Training Labels:** USFS LCMS Land Cover (30m resolution, 15 classes)
 
-And of course, when applied to diffent parts of the world the model breaks down. It still recognizes general features, but doesn't classify them accurately. In the Southern Canada ROI the model sees bodies of water, and that some areas of the image are highly photosynthetically productive. However, it attributes those features to a mixed composition of trees and shrubs, instead of just highly productive marshland surrounding a lake. When provided with an image of the Sahara Desert, the model predicts that everything is either Trees or Tall Shrubs and Trees Mix.
+**Training Region:** Colorado (26 regions of interest, ~10×10 miles each)
 
-</td>
-<td>
+**Sample Size:** 150,000 image patches (80×80 pixels each)
 
-![Classification legend](/figs/legend.png)
+### **Model Architecture**
 
-</td>
-</tr>
-</table>
+The model implements a CNN with integrated spatial and spectral attention mechanisms optimized for land cover classification with spatial context.
 
-| ROI | Raw Sentinel 2 Imagery | Overlain Predictions | Predictions |
-| --- | ---------------------- | -------------------- | ----------- |
-| **Southern Canada** | ![alt text](/figs/canada_s2.png) | ![alt text](/figs/canada_5050.png) | ![alt text](/figs/canada_preds.png) |
-| **Sahara Desert** | ![alt text](/figs/sahara_s2.png) | ![alt text](/figs/sahara_5050.png) | ![alt text](/figs/sahara_preds.png) |
+**Key Components:**
 
-## **Conclusion**
-This approach demonstrates the benefits of providing surrounding context in procedural land use classification processes. However, it is limited primarily by:
-- The localized and relatively small nature of the training data
-- The non-seasonally agnostic approach to classification, which solely utilizes data from summer months
-- The high computational cost and inefficiency of running a 5x80x80 tensor through a CNN in order to predict the class of a single pixel (each ~150,000 pixel image shown here took approximately 45 minutes to run through the model)
-- The need for a family of models to be trained in order to make accurate predictions in different ecological zones
+1. **Spatial Context Window:** 80×80 pixel patches (800m × 800m) provide regional context for classifying the central pixel, addressing the hypothesis that surrounding landscape patterns are critical for accurate classification.
 
-My work on this project is finished for now, but feel free to reach out to collaborate on improvements or other environmentally focused machine learning projects at gallant (dot) m (dot) evan (at) gmail (dot) com!
+2. **Multi-Channel Input:** 5 channels (RGB + NIR + NDVI)
+   - NDVI computed in-network: `(NIR - Red) / (NIR + Red)`
+
+3. **Convolutional Blocks:**
+   - Conv1: 5 → 32 channels, 3×3 kernels
+   - Conv2: 32 → 64 channels, 3×3 kernels  
+   - Conv3: 64 → 128 channels, 3×3 kernels
+   - Each followed by batch normalization and ReLU activation
+   - Max pooling (2×2) after each block
+
+4. **Attention Mechanisms:**
+   - **Spectral Attention:** Channel-wise squeeze-and-excitation modules emphasize informative spectral bands
+   - **Spatial Attention:** Gaussian-weighted center-biased attention prioritizes the central classification target while incorporating peripheral context
+   - Applied after each convolutional block
+
+5. **Classification Head:**
+   - Fully connected layers (128 → 15 classes)
+   - Dropout (0.5) for regularization
+
+**Architecture Diagram:**
+```
+Input (5×80×80) 
+  → Conv1 + BN + ReLU → Spectral Attention → Spatial Attention → MaxPool
+  → Conv2 + BN + ReLU → Spectral Attention → Spatial Attention → MaxPool
+  → Conv3 + BN + ReLU → Spectral Attention → Spatial Attention → MaxPool
+  → Flatten → FC(128) + Dropout(0.5) → FC(15) → Softmax
+```
+
+### **Training Configuration**
+
+- **Loss Function:** Cross-entropy with inverse frequency class weighting (addresses severe class imbalance)
+- **Optimizer:** Adam (lr=0.001)
+- **Learning Rate Schedule:** ReduceLROnPlateau (factor=0.5, patience=5)
+- **Batch Size:** 32
+- **Epochs:** 50 (with early stopping, patience=10)
+- **Data Split:** 80% train / 20% validation (stratified)
+- **Data Augmentation:** Random horizontal/vertical flips
+- **Framework:** PyTorch
+
+### **Learning from Noisy Labels**
+
+A key methodological contribution is demonstrating that CNNs can learn accurate fine-scale patterns from coarse, imperfect training labels when:
+1. The training data contains large contiguous regions of correct classifications
+2. Errors constitute a minority of training samples
+3. Spatial context windows are sufficiently large to capture correctly-labeled regions
+
+The model effectively learns to ignore edge artifacts and small-scale USFS errors while extracting the underlying vegetation patterns present in the imagery.
+
+---
+
+## **Results**
+
+### **Quantitative Performance**
+
+![Confusion Matrix](/figs/confusion_matrix.png)
+
+*Figure 2: Confusion matrix showing per-class accuracy on held-out validation data.*
+
+The model achieves strong performance in homogeneous regions while significantly improving boundary delineation compared to the USFS baseline. Key findings:
+
+- Successfully corrects systematic USFS errors at ecotones and landscape boundaries
+- Accurately identifies topographic controls on vegetation (north vs. south-facing slopes)
+- Detects fine-scale features (riparian corridors, forest gaps) absent in USFS data
+- Performance degrades gracefully on novel landscapes (see Transferability Analysis)
+
+### **Qualitative Results: Colorado Test Regions**
+
+The following examples demonstrate model performance on regions with similar terrain characteristics to the training data (Rocky Mountain foothill and montane ecosystems).
+
+| Region | Sentinel-2 RGB | Model Predictions (Overlaid) | Model Predictions | USFS Baseline |
+|--------|----------------|------------------------------|-------------------|---------------|
+| **Snowmass** <br> Model accurately delineates hillside aspect-driven vegetation gradients | ![](/figs/snow_s2.png) | ![](/figs/snow_5050.png) | ![](/figs/snow_preds.png) | ![](/figs/snow_usfs.png) |
+| **Boise, ID** <br> Temporal mismatch: USFS classifies as snow (winter imagery), model predicts shrubs/trees (trained on summer imagery) | ![](/figs/idaho_s2.png) | ![](/figs/idaho_5050.png) | ![](/figs/idaho_preds.png) | ![](/figs/idaho_usfs.png) |
+| **Mt. Yale** <br> Model successfully identifies riparian corridors absent in USFS classification | ![](/figs/yale_s2.png) | ![](/figs/yale_5050.png) | ![](/figs/yale_preds.png) | ![](/figs/yale_usfs.png) |
+| **Steamboat Springs** <br> Both model and USFS underperform in mixed shrub-tree stands; ground truth is intermediate between predictions | ![](/figs/steam_s2.png) | ![](/figs/steam_5050.png) | ![](/figs/steam_preds.png) | ![](/figs/steam_usfs.png) |
+| **Laporte** <br> Model correctly identifies shrub-tree mix along topographic features; USFS over-generalizes to barren/grass categories | ![](/figs/laporte_s2.png) | ![](/figs/laporte_5050.png) | ![](/figs/laporte_preds.png) | ![](/figs/laporte_usfs.png) |
+
+![Classification Legend](/figs/legend.png)
+
+### **Transferability Analysis: Out-of-Distribution Performance**
+
+To assess model generalizability, predictions were generated for regions with substantially different ecosystems than the training data. Results demonstrate expected degradation in novel environments, highlighting the importance of ecosystem-specific training.
+
+| Region | Sentinel-2 RGB | Model Predictions (Overlaid) | Model Predictions |
+|--------|----------------|------------------------------|-------------------|
+| **Southern Canada** <br> Model recognizes water bodies and high photosynthetic activity but misclassifies boreal marshland as tree/shrub mix | ![](/figs/canada_s2.png) | ![](/figs/canada_5050.png) | ![](/figs/canada_preds.png) |
+| **Sahara Desert** <br> Complete classification failure: arid landscape classified as trees/tall shrubs due to lack of desert training examples | ![](/figs/sahara_s2.png) | ![](/figs/sahara_5050.png) | ![](/figs/sahara_preds.png) |
+
+![Classification Legend](/figs/legend.png)
+
+These failure cases demonstrate that the model has not learned generalizable spectral signatures of land cover classes, but rather ecosystem-specific spatial-spectral patterns characteristic of Rocky Mountain / Great Plains landscapes.
+
+---
+
+## **Discussion**
+
+### **Contributions**
+
+1. **Spatial Context for Classification:** Demonstrates that 80×80 pixel context windows (800m × 800m) enable accurate pixel-level land cover classification by incorporating landscape-scale patterns.
+
+2. **Learning from Imperfect Labels:** Shows CNNs can successfully train on noisy labels when errors are spatially localized (boundary effects, small features) and correct labels dominate training data.
+
+3. **Attention Mechanisms:** Integrated spectral and spatial attention modules improve classification by (a) emphasizing relevant spectral bands and (b) focusing on the central classification target while leveraging peripheral context.
+
+4. **High-Resolution Output:** Achieves 3× resolution improvement (30m → 10m) enabling field-scale applications.
+
+### **Limitations**
+
+1. **Geographic Transferability:** Model is ecosystem-specific (Rocky Mountain / Great Plains) and fails catastrophically on out-of-distribution landscapes (boreal, desert). Operational deployment would require regional model ensembles.
+
+2. **Seasonal Constraints:** Training exclusively on summer imagery (peak greenness) limits applicability to other phenological states. Temporal generalization requires multi-season training data.
+
+3. **Computational Cost:** Processing time is substantial (~45 minutes per 150,000-pixel image on CPU), limiting real-time applications. Inference requires 80×80 pixel windows for each output pixel, resulting in significant redundant computation.
+
+4. **Training Data Scale:** 150,000 samples from 26 regions may be insufficient for capturing full landscape heterogeneity across Colorado. Expanded geographic sampling could improve robustness.
+
+5. **Validation Approach:** Validation uses USFS labels as ground truth, which themselves contain errors. Independent accuracy assessment with field-validated reference data would provide more reliable performance metrics.
+
+### **Future Directions**
+
+- **Computational Efficiency:** Implement fully convolutional architecture to eliminate redundant windowing and enable efficient wall-to-wall mapping
+- **Multi-Season Training:** Incorporate imagery from multiple phenological stages to enable year-round classification
+- **Hierarchical Models:** Train separate models for distinct ecoregions (alpine, montane, plains, desert) and ensemble predictions
+- **Uncertainty Quantification:** Implement Monte Carlo dropout or ensemble methods to provide pixel-level confidence estimates
+- **Transfer Learning:** Fine-tune on new regions with limited labeled data to reduce training requirements for geographic expansion
+
+---
+
+## **Technical Implementation**
+
+### **Dependencies**
+
+```
+torch>=2.0.0
+torchvision
+numpy
+scikit-learn
+matplotlib
+seaborn
+tqdm
+```
+
+### **Repository Structure**
+
+```
+├── src/
+│   ├── data/
+│   │   └── CNN/
+│   │       └── cnn_data_generator.py    # Data loading utilities
+│   └── models/
+│       └── land_cover_cnn.py            # Model architecture & training
+├── data/
+│   └── raw/
+│       ├── sentinel2_imagery/           # Sentinel-2 data
+│       └── USFS_land_cover/             # USFS LCMS data
+├── figs/                                # Result visualizations
+└── README.md
+```
+
+### **Usage**
+
+```python
+from src.models.land_cover_cnn import train_land_cover_model, LandCoverCNN
+
+# Load data (150,000 samples, 80×80 patches)
+s2_blocks, classes = load_training_data()  
+
+# Train model
+model, history = train_land_cover_model(
+    s2_blocks, 
+    classes,
+    batch_size=32,
+    epochs=50,
+    learning_rate=0.001,
+    block_size=80
+)
+
+# Evaluate
+y_true, y_pred = evaluate_model(model, test_blocks, test_classes)
+```
+
+---
+
+## **References**
+
+Healey, S. P., Cohen, W. B., Yang, Z., Kenneth Brewer, C., Brooks, E. B., Gorelick, N., ... & Hughes, M. J. (2018). Mapping forest change using stacked generalization: An ensemble approach. *Remote Sensing of Environment*, 204, 717-728.
+
+USFS Landscape Change Monitoring System: [https://data.fs.usda.gov/geodata/rastergateway/LCMS/](https://data.fs.usda.gov/geodata/rastergateway/LCMS/)
+
+Sentinel-2 Mission: [https://developers.google.com/earth-engine/datasets/catalog/sentinel-2](https://developers.google.com/earth-engine/datasets/catalog/sentinel-2)
+
+---
+
+## **Contact**
+
+For questions, collaboration opportunities, or to discuss applications to other regions and ecosystems:
+
+**Evan Gallant**  
+gallant.m.evan@gmail.com
+
+---
+
+## **Acknowledgments**
+
+This project was developed as independent research to build technical expertise in geospatial machine learning and atmospheric data science methods. Training data derived from USFS LCMS (public domain) and Sentinel-2 imagery (ESA Copernicus Programme).
